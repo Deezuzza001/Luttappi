@@ -1,63 +1,36 @@
 from pyrogram import Client, filters
-from pyrogram.types import (
-    Message,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
-)
 from pyrogram.enums import ChatMemberStatus
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 from database.users_chats_db import save_user, save_group
-from info import (
-    FORCE_SUB_CHANNEL,
-    UPDATE_CHANNEL,
-    BOT_USERNAME,
-    START_PIC,
-)
+from info import START_PIC, FORCE_SUB_CHANNEL, UPDATE_CHANNEL
 
 
-def get_update_url():
-    if not UPDATE_CHANNEL:
+def channel_link(value):
+    if not value:
         return None
-
-    channel = UPDATE_CHANNEL.strip()
-
-    if channel.startswith("https://t.me/"):
-        return channel
-
-    if channel.startswith("@"):
-        channel = channel[1:]
-
-    return f"https://t.me/{channel}"
+    value = str(value).strip()
+    if value.startswith("https://") or value.startswith("http://"):
+        return value
+    if value.startswith("@"):
+        return f"https://t.me/{value[1:]}"
+    return f"https://t.me/{value}"
 
 
-def get_force_channel_id():
+async def is_subscribed(client: Client, user_id: int) -> bool:
     if not FORCE_SUB_CHANNEL:
-        return None
-
-    try:
-        return int(str(FORCE_SUB_CHANNEL).strip())
-    except (TypeError, ValueError):
-        return None
-
-
-async def is_subscribed(client, user_id):
-    channel_id = get_force_channel_id()
-
-    if not channel_id:
         return True
 
     try:
         member = await client.get_chat_member(
-            channel_id,
+            int(FORCE_SUB_CHANNEL),
             user_id,
         )
-
         return member.status in (
             ChatMemberStatus.OWNER,
             ChatMemberStatus.ADMINISTRATOR,
             ChatMemberStatus.MEMBER,
         )
-
     except Exception:
         return False
 
@@ -65,25 +38,17 @@ async def is_subscribed(client, user_id):
 def start_keyboard():
     buttons = []
 
-    update_url = get_update_url()
-
-    if update_url:
+    update_link = channel_link(UPDATE_CHANNEL)
+    if update_link:
         buttons.append([
-            InlineKeyboardButton(
-                "📢 UPDATE CHANNEL",
-                url=update_url,
-            )
+            InlineKeyboardButton("📢 UPDATE CHANNEL", url=update_link)
         ])
 
     if FORCE_SUB_CHANNEL:
-        update_url = get_update_url()
-
-        if update_url:
+        join_link = channel_link(UPDATE_CHANNEL)
+        if join_link:
             buttons.append([
-                InlineKeyboardButton(
-                    "🔒 JOIN CHANNEL",
-                    url=update_url,
-                )
+                InlineKeyboardButton("📢 JOIN CHANNEL", url=join_link)
             ])
 
         buttons.append([
@@ -94,97 +59,98 @@ def start_keyboard():
         ])
 
     buttons.append([
-        InlineKeyboardButton(
-            "ℹ️ ABOUT",
-            callback_data="start_about",
-        ),
-        InlineKeyboardButton(
-            "❌ CLOSE",
-            callback_data="start_close",
-        ),
+        InlineKeyboardButton("ℹ️ ABOUT", callback_data="start_about"),
+        InlineKeyboardButton("❌ CLOSE", callback_data="start_close"),
     ])
 
     return InlineKeyboardMarkup(buttons)
 
 
-def about_keyboard():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "🔙 BACK",
-                callback_data="start_back",
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                "❌ CLOSE",
-                callback_data="start_close",
-            ),
-        ],
-    ])
+START_TEXT = (
+    "👋 **Hello {name}!**\n\n"
+    "🎬 **Advanced Auto Filter Bot**-ലേക്ക് സ്വാഗതം!\n\n"
+    "🔎 Movie name അയക്കൂ, available files ഞാൻ കണ്ടെത്തിത്തരാം.\n\n"
+    "⚡ Fast • Smart • Auto Filter"
+)
 
 
-async def send_start_message(client, message):
+async def send_start_message(client: Client, message: Message):
     user = message.from_user
+    name = user.first_name if user else "User"
 
-    start_text = (
-        f"👋 **HEY {user.first_name}** 🫶\n\n"
-        "🎬 **Advanced Auto Filter Bot**-ലേക്ക് സ്വാഗതം!\n\n"
-        "🔎 Movie name അയക്കൂ, available files ഞാൻ "
-        "കണ്ടെത്തിത്തരാം.\n\n"
-        "⚡ Fast • Smart • Auto Filter"
-    )
+    if FORCE_SUB_CHANNEL and user:
+        if not await is_subscribed(client, user.id):
+            join_link = channel_link(UPDATE_CHANNEL)
+
+            buttons = []
+            if join_link:
+                buttons.append([
+                    InlineKeyboardButton("📢 JOIN CHANNEL", url=join_link)
+                ])
+            buttons.append([
+                InlineKeyboardButton(
+                    "✅ I HAVE JOINED",
+                    callback_data="check_subscription",
+                )
+            ])
+            buttons.append([
+                InlineKeyboardButton(
+                    "ℹ️ ABOUT",
+                    callback_data="start_about",
+                ),
+                InlineKeyboardButton(
+                    "❌ CLOSE",
+                    callback_data="start_close",
+                ),
+            ])
+
+            text = (
+                f"👋 **Hello {name}!**\n\n"
+                "🔒 **Bot ഉപയോഗിക്കാൻ ആദ്യം നമ്മുടെ channel join ചെയ്യുക.**\n\n"
+                "Join ചെയ്ത ശേഷം **I HAVE JOINED** അമർത്തുക."
+            )
+
+            if START_PIC:
+                await client.send_photo(
+                    chat_id=message.chat.id,
+                    photo=START_PIC,
+                    caption=text,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                )
+            else:
+                await client.send_message(
+                    chat_id=message.chat.id,
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                )
+            return
 
     keyboard = start_keyboard()
 
     if START_PIC:
-        await message.reply_photo(
+        await client.send_photo(
+            chat_id=message.chat.id,
             photo=START_PIC,
-            caption=start_text,
+            caption=START_TEXT.format(name=name),
             reply_markup=keyboard,
         )
     else:
-        await message.reply_text(
-            start_text,
+        await client.send_message(
+            chat_id=message.chat.id,
+            text=START_TEXT.format(name=name),
             reply_markup=keyboard,
         )
 
 
-@Client.on_message(
-    filters.command("start") & filters.private
-)
-async def start_command(
-    client: Client,
-    message: Message,
-):
-    await save_user(message.from_user)
+@Client.on_message(filters.command("start") & filters.private)
+async def start_command(client: Client, message: Message):
+    if message.from_user:
+        await save_user(message.from_user)
 
-    if not await is_subscribed(
-        client,
-        message.from_user.id,
-    ):
-        join_text = (
-            "🔒 **CHANNEL JOIN REQUIRED**\n\n"
-            "Bot ഉപയോഗിക്കുന്നതിന് മുമ്പ് ഞങ്ങളുടെ "
-            "channel join ചെയ്യുക.\n\n"
-            "Join ചെയ്ത ശേഷം **I HAVE JOINED** അമർത്തുക."
-        )
-
-        await message.reply_text(
-            join_text,
-            reply_markup=start_keyboard(),
-        )
-        return
-
-    await send_start_message(
-        client,
-        message,
-    )
+    await send_start_message(client, message)
 
 
 @Client.on_message(filters.group)
-async def save_group_data(
-    client: Client,
-    message: Message,
-):
-    await save_group(message.chat)
+async def save_group_data(client: Client, message: Message):
+    if message.chat:
+        await save_group(message.chat)
