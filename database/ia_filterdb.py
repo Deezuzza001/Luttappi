@@ -1,20 +1,18 @@
+import re
+
 from database import files
 
 
-# =========================
-# Database Indexes
-# =========================
-
 async def create_indexes():
-    """Create MongoDB indexes for faster searching."""
-
     await files.create_index(
-        [
-            ("chat_id", 1),
-            ("message_id", 1)
-        ],
+        [("chat_id", 1), ("message_id", 1)],
         unique=True,
         name="unique_file_message"
+    )
+
+    await files.create_index(
+        [("search_name", 1)],
+        name="search_name_index"
     )
 
     await files.create_index(
@@ -23,13 +21,7 @@ async def create_indexes():
     )
 
 
-# =========================
-# Save File
-# =========================
-
 async def save_file(file_data: dict):
-    """Save or update a Telegram file."""
-
     if not file_data:
         return False
 
@@ -53,33 +45,39 @@ async def save_file(file_data: dict):
     return True
 
 
-# =========================
-# Search Files
-# =========================
+def escape_regex(text: str) -> str:
+    return re.escape(text.strip())
 
-async def search_files(
-    query: str,
-    limit: int = 10
-):
-    """Search movie/file names."""
 
+async def search_files(query: str, limit: int = 10):
     if not query:
         return []
 
     query = query.strip()
 
+    if not query:
+        return []
+
+    safe_query = escape_regex(query)
+
     cursor = files.find(
         {
             "$or": [
                 {
+                    "search_name": {
+                        "$regex": safe_query,
+                        "$options": "i"
+                    }
+                },
+                {
                     "file_name": {
-                        "$regex": query,
+                        "$regex": safe_query,
                         "$options": "i"
                     }
                 },
                 {
                     "caption": {
-                        "$regex": query,
+                        "$regex": safe_query,
                         "$options": "i"
                     }
                 }
@@ -87,21 +85,10 @@ async def search_files(
         }
     ).limit(limit)
 
-    return await cursor.to_list(
-        length=limit
-    )
+    return await cursor.to_list(length=limit)
 
 
-# =========================
-# Get File
-# =========================
-
-async def get_file(
-    chat_id: int,
-    message_id: int
-):
-    """Get a single indexed file."""
-
+async def get_file(chat_id: int, message_id: int):
     return await files.find_one(
         {
             "chat_id": chat_id,
@@ -110,16 +97,7 @@ async def get_file(
     )
 
 
-# =========================
-# Delete File
-# =========================
-
-async def delete_file(
-    chat_id: int,
-    message_id: int
-):
-    """Delete an indexed file."""
-
+async def delete_file(chat_id: int, message_id: int):
     result = await files.delete_one(
         {
             "chat_id": chat_id,
@@ -130,11 +108,5 @@ async def delete_file(
     return result.deleted_count > 0
 
 
-# =========================
-# Total Files
-# =========================
-
 async def total_files():
-    """Return total indexed files."""
-
     return await files.count_documents({})
