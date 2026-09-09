@@ -12,7 +12,7 @@ from database.settings_db import get_settings
 from info import MAX_RESULTS, SPELLING_CHECK
 from utils import normalize_query, humanbytes
 
-from plugins.pm_filter import (
+from luttappi.pm_filter import (
     SEARCH_CACHE,
     RESULTS_PER_PAGE,
     build_keyboard,
