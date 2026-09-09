@@ -29,6 +29,7 @@ class LuttappiFilterBot(Client):
             sleep_threshold=30,
         )
 
+
 app = LuttappiFilterBot()
 
 
@@ -45,23 +46,22 @@ async def startup():
 async def main():
     await startup()
 
-    LOGGER.info("🚀 Starting Advanced Auto Filter Bot...")
+    LOGGER.info("🚀 Starting Luttappi Filter Bot...")
 
     await app.start()
 
     me = await app.get_me()
     LOGGER.info("🤖 Bot started as @%s", me.username)
 
+    # Start automatic FILE_CHANNEL indexing
     asyncio.create_task(index_channel_history(app))
 
     await idle()
 
     LOGGER.info("🛑 Stopping bot...")
+
     await app.stop()
 
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-
