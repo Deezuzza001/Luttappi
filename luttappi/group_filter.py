@@ -1,87 +1,79 @@
 import time
 
 from pyrogram import Client, filters
-from pyrogram.types import (
-    Message,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
-)
 
 from database.ia_filterdb import search_files
 from database.settings_db import get_settings
 from info import MAX_RESULTS, SPELLING_CHECK
-from utils import normalize_query, humanbytes
+from utils import normalize_query
 
 from luttappi.pm_filter import (
     SEARCH_CACHE,
-    RESULTS_PER_PAGE,
     build_keyboard,
     build_result_text,
+    save_search_cache,
 )
 
 
 @Client.on_message(
     filters.group
     & filters.text
-    & ~filters.command(
-        ["start", "help", "settings"]
-    )
+    & ~filters.command(["start", "help", "settings"])
 )
-async def group_filter(
-    client: Client,
-    message: Message
-):
+async def group_filter(client, message):
 
     if not message.from_user:
         return
 
-    query = normalize_query(
-        message.text
-    )
+    # Normalize movie name
+    query = normalize_query(message.text)
 
     if not query:
         return
 
-    settings = await get_settings(
-        message.chat.id
-    )
+    # Group settings
+    settings = await get_settings(message.chat.id)
 
-    # Auto Filter OFF
-    if not settings.get(
-        "auto_filter",
-        True
-    ):
+    if not settings.get("auto_filter", True):
         return
 
+    # Search database
     results = await search_files(
         query,
-        100
+        MAX_RESULTS
     )
 
-    # No results
+    # -----------------------------------------------------
+    # NO RESULT
+    # -----------------------------------------------------
+
     if not results:
 
-        if settings.get(
-            "spell_check",
-            True
-        ):
+        if settings.get("spell_check", True):
             await message.reply_text(
                 SPELLING_CHECK
             )
 
         return
 
-    # Store search separately for this group/user
+    # -----------------------------------------------------
+    # GROUP CACHE
+    # -----------------------------------------------------
+
     cache_key = (
         message.chat.id,
         message.from_user.id
     )
 
-    SEARCH_CACHE[cache_key] = {
-        "query": query,
-        "results": results,
-        "time": time.time(),
-    }
+    save_search_cache(
+        cache_key,
+        query,
+        results
+    )
+
+    # -----------------------------------------------------
+    # RESULT MESSAGE
+    # -----------------------------------------------------
 
     text = build_result_text(
         query,
