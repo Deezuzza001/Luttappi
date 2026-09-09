@@ -6,6 +6,7 @@ from pyrogram import Client, idle
 from info import API_ID, API_HASH, BOT_TOKEN
 from database import check_database
 from database.ia_filterdb import create_indexes
+from luttappi.indexer import index_channel_history
 
 
 logging.basicConfig(
@@ -52,6 +53,8 @@ async def main():
     me = await app.get_me()
     LOGGER.info("🤖 Bot started as @%s", me.username)
 
+    asyncio.create_task(index_channel_history(app))
+
     await idle()
 
     LOGGER.info("🛑 Stopping bot...")
@@ -60,4 +63,6 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+
 
