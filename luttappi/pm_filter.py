@@ -1,11 +1,7 @@
 import time
 
 from pyrogram import Client, filters
-from pyrogram.types import (
-    Message,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
-)
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from database.ia_filterdb import search_files
 from database.settings_db import get_settings
@@ -13,32 +9,47 @@ from info import MAX_RESULTS, SPELLING_CHECK
 from utils import normalize_query, humanbytes
 
 
-# Temporary search cache
+# ---------------------------------------------------------
+# SEARCH CACHE
+# ---------------------------------------------------------
+
 SEARCH_CACHE = {}
 
 RESULTS_PER_PAGE = 8
+CACHE_TIMEOUT = 900  # 15 minutes
 
+
+# ---------------------------------------------------------
+# FILE BUTTON
+# ---------------------------------------------------------
 
 def make_file_button(file_data):
     file_name = file_data.get("file_name", "Unknown File")
     file_size = humanbytes(file_data.get("file_size", 0))
 
+    chat_id = file_data.get("chat_id")
+    message_id = file_data.get("message_id")
+
     return InlineKeyboardButton(
         text=f"{file_size} 🌷 {file_name[:42]}",
-        callback_data=(
-            f"file_"
-            f"{file_data['chat_id']}_"
-            f"{file_data['message_id']}"
-        )
+        callback_data=f"file_{chat_id}_{message_id}"
     )
 
+
+# ---------------------------------------------------------
+# RESULT KEYBOARD
+# ---------------------------------------------------------
 
 def build_keyboard(results, page=1):
+    if not results:
+        return None
+
     total_pages = max(
         1,
-        (len(results) + RESULTS_PER_PAGE - 1)
-        // RESULTS_PER_PAGE
+        (len(results) + RESULTS_PER_PAGE - 1) // RESULTS_PER_PAGE
     )
+
+    page = max(1, min(page, total_pages))
 
     start = (page - 1) * RESULTS_PER_PAGE
     end = start + RESULTS_PER_PAGE
@@ -47,7 +58,7 @@ def build_keyboard(results, page=1):
 
     buttons = []
 
-    # Language / Quality buttons
+    # Filter buttons
     buttons.append([
         InlineKeyboardButton(
             "LANGUAGES",
@@ -56,7 +67,7 @@ def build_keyboard(results, page=1):
         InlineKeyboardButton(
             "QUALITY",
             callback_data="filter_quality"
-        ),
+        )
     ])
 
     # File buttons
@@ -90,73 +101,112 @@ def build_keyboard(results, page=1):
     return InlineKeyboardMarkup(buttons)
 
 
+# ---------------------------------------------------------
+# RESULT TEXT
+# ---------------------------------------------------------
+
 def build_result_text(query, page, total_results):
     total_pages = max(
         1,
-        (total_results + RESULTS_PER_PAGE - 1)
-        // RESULTS_PER_PAGE
+        (total_results + RESULTS_PER_PAGE - 1) // RESULTS_PER_PAGE
     )
 
     return (
         "👋 **HEY** 👋 🙂 🫶\n\n"
         f"📂 **Query :** `{query}`\n\n"
-        f"🗓 **Page No ›** `{page}`\n\n"
-        "✍️ **NOTE :** ⚠️ This Message\n"
-        "Will Be Auto Deleted Within 15 Mins ❗\n"
+        f"🗓 **Page No ›** `{page}` / `{total_pages}`\n\n"
+        f"🎬 **Results :** `{total_results}`\n\n"
+        "✍️ **NOTE :** ⚠️ Search buttons will "
+        "expire after 15 minutes ❗"
     )
 
+
+# ---------------------------------------------------------
+# CACHE CLEANUP
+# ---------------------------------------------------------
+
+def save_search_cache(cache_key, query, results):
+    SEARCH_CACHE[cache_key] = {
+        "query": query,
+        "results": results,
+        "time": time.time(),
+    }
+
+
+def get_search_cache(cache_key):
+    data = SEARCH_CACHE.get(cache_key)
+
+    if not data:
+        return None
+
+    # Remove expired cache
+    if time.time() - data["time"] > CACHE_TIMEOUT:
+        SEARCH_CACHE.pop(cache_key, None)
+        return None
+
+    return data
+
+
+# ---------------------------------------------------------
+# PRIVATE MESSAGE AUTO FILTER
+# ---------------------------------------------------------
 
 @Client.on_message(
     filters.private
     & filters.text
     & ~filters.command("start")
 )
-async def pm_filter(
-    client: Client,
-    message: Message
-):
+async def pm_filter(client, message):
 
     if not message.from_user:
         return
 
+    # Clean / normalize movie query
     query = normalize_query(message.text)
 
     if not query:
         return
 
-    settings = await get_settings(
-        message.from_user.id
-    )
+    # User settings
+    settings = await get_settings(message.from_user.id)
 
-    if not settings.get(
-        "auto_filter",
-        True
-    ):
+    if not settings.get("auto_filter", True):
         return
 
+    # Search database
     results = await search_files(
         query,
-        100
+        MAX_RESULTS
     )
+
+    # -----------------------------------------------------
+    # NO RESULT
+    # -----------------------------------------------------
 
     if not results:
 
-        if settings.get(
-            "spell_check",
-            True
-        ):
+        if settings.get("spell_check", True):
             await message.reply_text(
                 SPELLING_CHECK
             )
 
         return
 
-    # Save search result
-    SEARCH_CACHE[message.from_user.id] = {
-        "query": query,
-        "results": results,
-        "time": time.time(),
-    }
+    # -----------------------------------------------------
+    # SAVE SEARCH CACHE
+    # -----------------------------------------------------
+
+    cache_key = message.from_user.id
+
+    save_search_cache(
+        cache_key,
+        query,
+        results
+    )
+
+    # -----------------------------------------------------
+    # RESULT MESSAGE
+    # -----------------------------------------------------
 
     text = build_result_text(
         query,
