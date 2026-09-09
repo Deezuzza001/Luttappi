@@ -8,6 +8,7 @@ from pyrogram.types import (
 )
 
 from database.ia_filterdb import get_file
+
 from luttappi.pm_filter import (
     SEARCH_CACHE,
     RESULTS_PER_PAGE,
@@ -15,29 +16,54 @@ from luttappi.pm_filter import (
     build_result_text,
 )
 
+
+# ---------------------------------------------------------
+# CACHE SETTINGS
+# ---------------------------------------------------------
+
 CACHE_TIMEOUT = 900  # 15 minutes
 
 
+# ---------------------------------------------------------
+# CACHE KEY
+# ---------------------------------------------------------
+
 def get_cache_key(query: CallbackQuery):
-    """Use the same cache key for PM and Group searches."""
+    """
+    PM:
+        user_id
+
+    Group:
+        (chat_id, user_id)
+    """
+
     message = query.message
 
     if message and message.chat:
         chat_type = message.chat.type.value
 
         if chat_type in ("group", "supergroup"):
-            return (message.chat.id, query.from_user.id)
+            return (
+                message.chat.id,
+                query.from_user.id,
+            )
 
     return query.from_user.id
 
 
+# ---------------------------------------------------------
+# GET CACHE
+# ---------------------------------------------------------
+
 def get_user_cache(query: CallbackQuery):
     key = get_cache_key(query)
+
     data = SEARCH_CACHE.get(key)
 
     if not data:
         return None
 
+    # Cache expired
     if time.time() - data.get("time", 0) > CACHE_TIMEOUT:
         SEARCH_CACHE.pop(key, None)
         return None
@@ -45,25 +71,55 @@ def get_user_cache(query: CallbackQuery):
     return data
 
 
-async def restore_page(query: CallbackQuery, results, page: int, movie_query: str):
+# ---------------------------------------------------------
+# RESTORE RESULT PAGE
+# ---------------------------------------------------------
+
+async def restore_page(
+    query: CallbackQuery,
+    results,
+    page: int,
+    movie_query: str,
+):
     total_pages = max(
         1,
-        (len(results) + RESULTS_PER_PAGE - 1) // RESULTS_PER_PAGE
+        (len(results) + RESULTS_PER_PAGE - 1)
+        // RESULTS_PER_PAGE,
     )
 
     if page < 1 or page > total_pages:
-        await query.answer("❌ Invalid page.", show_alert=True)
+        await query.answer(
+            "❌ Invalid page.",
+            show_alert=True,
+        )
         return
 
     await query.message.edit_text(
-        build_result_text(movie_query, page, len(results)),
-        reply_markup=build_keyboard(results, page),
+        build_result_text(
+            movie_query,
+            page,
+            len(results),
+        ),
+        reply_markup=build_keyboard(
+            results,
+            page,
+        ),
     )
+
     await query.answer()
 
 
-@Client.on_callback_query(filters.regex(r"^file_"))
-async def file_callback(client: Client, query: CallbackQuery):
+# ---------------------------------------------------------
+# FILE CALLBACK
+# ---------------------------------------------------------
+
+@Client.on_callback_query(
+    filters.regex(r"^file_-?\d+_\d+$")
+)
+async def file_callback(
+    client: Client,
+    query: CallbackQuery,
+):
     try:
         parts = query.data.split("_")
 
@@ -77,7 +133,11 @@ async def file_callback(client: Client, query: CallbackQuery):
         chat_id = int(parts[1])
         message_id = int(parts[2])
 
-        file_data = await get_file(chat_id, message_id)
+        # Get file from MongoDB
+        file_data = await get_file(
+            chat_id,
+            message_id,
+        )
 
         if not file_data:
             await query.answer(
@@ -86,7 +146,9 @@ async def file_callback(client: Client, query: CallbackQuery):
             )
             return
 
-        await query.answer("📤 File PM-ലേക്ക് അയക്കുന്നു...")
+        await query.answer(
+            "📤 File PM-ലേക്ക് അയക്കുന്നു..."
+        )
 
         try:
             await client.copy_message(
@@ -94,6 +156,7 @@ async def file_callback(client: Client, query: CallbackQuery):
                 from_chat_id=chat_id,
                 message_id=message_id,
             )
+
         except Exception:
             await query.answer(
                 "⚠️ ആദ്യം Bot-ന്റെ PM-ൽ /start ചെയ്യൂ.",
@@ -101,7 +164,10 @@ async def file_callback(client: Client, query: CallbackQuery):
             )
 
     except Exception as error:
-        print(f"File callback error: {error}")
+        print(
+            f"File callback error: {error}"
+        )
+
         try:
             await query.answer(
                 "❌ File അയക്കാൻ കഴിഞ്ഞില്ല.",
@@ -111,20 +177,43 @@ async def file_callback(client: Client, query: CallbackQuery):
             pass
 
 
-@Client.on_callback_query(filters.regex(r"^page_\d+$"))
-async def page_callback(client: Client, query: CallbackQuery):
+# ---------------------------------------------------------
+# PAGINATION
+# ---------------------------------------------------------
+
+@Client.on_callback_query(
+    filters.regex(r"^page_\d+$")
+)
+async def page_callback(
+    client: Client,
+    query: CallbackQuery,
+):
     try:
-        page = int(query.data.split("_")[1])
+        page = int(
+            query.data.split("_")[1]
+        )
+
         cache = get_user_cache(query)
 
         if not cache:
             await query.answer(
-                "⚠️ Search expired. വീണ്ടും movie name അയക്കൂ.",
+                "⚠️ Search expired.\n"
+                "വീണ്ടും movie name അയക്കൂ.",
                 show_alert=True,
             )
             return
 
-        results = cache.get("filtered_results") or cache["results"]
+        results = (
+            cache.get("filtered_results")
+            or cache.get("results", [])
+        )
+
+        if not results:
+            await query.answer(
+                "❌ Results ലഭ്യമല്ല.",
+                show_alert=True,
+            )
+            return
 
         await restore_page(
             query,
@@ -134,15 +223,27 @@ async def page_callback(client: Client, query: CallbackQuery):
         )
 
     except Exception as error:
-        print(f"Pagination error: {error}")
+        print(
+            f"Pagination error: {error}"
+        )
+
         await query.answer(
             "❌ Page load failed.",
             show_alert=True,
         )
 
 
-@Client.on_callback_query(filters.regex(r"^filter_languages$"))
-async def language_menu(client: Client, query: CallbackQuery):
+# ---------------------------------------------------------
+# LANGUAGE MENU
+# ---------------------------------------------------------
+
+@Client.on_callback_query(
+    filters.regex(r"^filter_languages$")
+)
+async def language_menu(
+    client: Client,
+    query: CallbackQuery,
+):
     buttons = [
         [
             InlineKeyboardButton(
@@ -179,13 +280,23 @@ async def language_menu(client: Client, query: CallbackQuery):
     ]
 
     await query.message.edit_reply_markup(
-        InlineKeyboardMarkup(buttons)
+        reply_markup=InlineKeyboardMarkup(buttons)
     )
+
     await query.answer()
 
 
-@Client.on_callback_query(filters.regex(r"^filter_quality$"))
-async def quality_menu(client: Client, query: CallbackQuery):
+# ---------------------------------------------------------
+# QUALITY MENU
+# ---------------------------------------------------------
+
+@Client.on_callback_query(
+    filters.regex(r"^filter_quality$")
+)
+async def quality_menu(
+    client: Client,
+    query: CallbackQuery,
+):
     buttons = [
         [
             InlineKeyboardButton(
@@ -216,64 +327,132 @@ async def quality_menu(client: Client, query: CallbackQuery):
     ]
 
     await query.message.edit_reply_markup(
-        InlineKeyboardMarkup(buttons)
+        reply_markup=InlineKeyboardMarkup(buttons)
     )
+
     await query.answer()
 
 
-@Client.on_callback_query(filters.regex(r"^filter_back$"))
-async def filter_back(client: Client, query: CallbackQuery):
+# ---------------------------------------------------------
+# FILTER BACK
+# ---------------------------------------------------------
+
+@Client.on_callback_query(
+    filters.regex(r"^filter_back$")
+)
+async def filter_back(
+    client: Client,
+    query: CallbackQuery,
+):
     cache = get_user_cache(query)
 
     if not cache:
         await query.answer(
-            "⚠️ Search expired. വീണ്ടും movie name അയക്കൂ.",
+            "⚠️ Search expired.\n"
+            "വീണ്ടും movie name അയക്കൂ.",
             show_alert=True,
         )
         return
 
-    cache.pop("filtered_results", None)
-
-    await query.message.edit_reply_markup(
-        build_keyboard(cache["results"], 1)
+    cache.pop(
+        "filtered_results",
+        None,
     )
+
+    results = cache.get(
+        "results",
+        [],
+    )
+
+    await query.message.edit_text(
+        build_result_text(
+            cache["query"],
+            1,
+            len(results),
+        ),
+        reply_markup=build_keyboard(
+            results,
+            1,
+        ),
+    )
+
     await query.answer()
 
 
-@Client.on_callback_query(filters.regex(r"^lang_"))
-async def language_filter(client: Client, query: CallbackQuery):
-    language = query.data.replace("lang_", "")
+# ---------------------------------------------------------
+# LANGUAGE FILTER
+# ---------------------------------------------------------
+
+@Client.on_callback_query(
+    filters.regex(r"^lang_(malayalam|english|tamil|telugu|hindi)$")
+)
+async def language_filter(
+    client: Client,
+    query: CallbackQuery,
+):
+    language = query.data.replace(
+        "lang_",
+        "",
+    )
+
     cache = get_user_cache(query)
 
     if not cache:
         await query.answer(
-            "⚠️ Search expired. വീണ്ടും movie name അയക്കൂ.",
+            "⚠️ Search expired.\n"
+            "വീണ്ടും movie name അയക്കൂ.",
             show_alert=True,
         )
         return
 
     searchable = {
-        "malayalam": ["malayalam", "mal"],
-        "english": ["english", "eng"],
-        "tamil": ["tamil"],
-        "telugu": ["telugu"],
-        "hindi": ["hindi"],
+        "malayalam": [
+            "malayalam",
+            "mal",
+        ],
+        "english": [
+            "english",
+            "eng",
+        ],
+        "tamil": [
+            "tamil",
+        ],
+        "telugu": [
+            "telugu",
+        ],
+        "hindi": [
+            "hindi",
+        ],
     }
 
-    keywords = searchable.get(language, [language])
+    keywords = searchable.get(
+        language,
+        [language],
+    )
 
-    results = [
-        file
-        for file in cache["results"]
+    results = []
+
+    for file_data in cache.get(
+        "results",
+        [],
+    ):
+        searchable_text = (
+            file_data.get(
+                "file_name",
+                "",
+            )
+            + " "
+            + file_data.get(
+                "caption",
+                "",
+            )
+        ).lower()
+
         if any(
-            keyword in (
-                file.get("file_name", "")
-                + " "
-                + file.get("caption", "")
-            ).lower()
+            keyword in searchable_text
             for keyword in keywords
-        )
-    ]
+        ):
+            results.append(file_data)
 
     if not results:
         await query.answer(
@@ -290,7 +469,10 @@ async def language_filter(client: Client, query: CallbackQuery):
             1,
             len(results),
         ),
-        reply_markup=build_keyboard(results, 1),
+        reply_markup=build_keyboard(
+            results,
+            1,
+        ),
     )
 
     await query.answer(
@@ -298,41 +480,86 @@ async def language_filter(client: Client, query: CallbackQuery):
     )
 
 
-@Client.on_callback_query(filters.regex(r"^quality_"))
-async def quality_filter(client: Client, query: CallbackQuery):
-    quality = query.data.replace("quality_", "")
+# ---------------------------------------------------------
+# QUALITY FILTER
+# ---------------------------------------------------------
+
+@Client.on_callback_query(
+    filters.regex(r"^quality_(480|720|1080|2160)$")
+)
+async def quality_filter(
+    client: Client,
+    query: CallbackQuery,
+):
+    quality = query.data.replace(
+        "quality_",
+        "",
+    )
 
     quality_map = {
-        "480": ["480p", "480"],
-        "720": ["720p", "720"],
-        "1080": ["1080p", "1080"],
-        "2160": ["2160p", "2160", "4k"],
+        "480": [
+            "480p",
+            "480",
+        ],
+        "720": [
+            "720p",
+            "720",
+        ],
+        "1080": [
+            "1080p",
+            "1080",
+        ],
+        "2160": [
+            "2160p",
+            "2160",
+            "4k",
+        ],
     }
 
-    keywords = quality_map.get(quality, [quality])
+    keywords = quality_map.get(
+        quality,
+        [quality],
+    )
+
     cache = get_user_cache(query)
 
     if not cache:
         await query.answer(
-            "⚠️ Search expired. വീണ്ടും movie name അയക്കൂ.",
+            "⚠️ Search expired.\n"
+            "വീണ്ടും movie name അയക്കൂ.",
             show_alert=True,
         )
         return
 
-    results = [
-        file
-        for file in cache["results"]
-        if any(
-            keyword in (
-                file.get("file_name", "")
-                + " "
-                + file.get("caption", "")
-            ).lower()
-            for keyword in keywords
-        )
-    ]
+    results = []
 
-    quality_text = "4K" if quality == "2160" else f"{quality}p"
+    for file_data in cache.get(
+        "results",
+        [],
+    ):
+        searchable_text = (
+            file_data.get(
+                "file_name",
+                "",
+            )
+            + " "
+            + file_data.get(
+                "caption",
+                "",
+            )
+        ).lower()
+
+        if any(
+            keyword in searchable_text
+            for keyword in keywords
+        ):
+            results.append(file_data)
+
+    quality_text = (
+        "4K"
+        if quality == "2160"
+        else f"{quality}p"
+    )
 
     if not results:
         await query.answer(
@@ -349,10 +576,12 @@ async def quality_filter(client: Client, query: CallbackQuery):
             1,
             len(results),
         ),
-        reply_markup=build_keyboard(results, 1),
+        reply_markup=build_keyboard(
+            results,
+            1,
+        ),
     )
 
     await query.answer(
         f"🎬 {quality_text} selected"
     )
-
