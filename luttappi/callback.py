@@ -16,6 +16,8 @@ from luttappi.pm_filter import (
     build_result_text,
 )
 
+from luttappi.start import is_subscribed, send_start_message
+
 
 # ---------------------------------------------------------
 # CACHE SETTINGS
@@ -585,3 +587,108 @@ async def quality_filter(
     await query.answer(
         f"🎬 {quality_text} selected"
     )
+
+
+# ---------------------------------------------------------
+# START MESSAGE CALLBACKS
+# ---------------------------------------------------------
+
+@Client.on_callback_query(
+    filters.regex(r"^check_subscription$")
+)
+async def check_subscription(
+    client: Client,
+    query: CallbackQuery,
+):
+    if not await is_subscribed(client, query.from_user.id):
+        await query.answer(
+            "❌ ആദ്യം channel join ചെയ്യുക.",
+            show_alert=True,
+        )
+        return
+
+    await query.answer("✅ Subscription verified!")
+
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+
+    await send_start_message(client, query.message)
+
+
+@Client.on_callback_query(
+    filters.regex(r"^start_about$")
+)
+async def start_about(
+    client: Client,
+    query: CallbackQuery,
+):
+    about_text = (
+        "ℹ️ **ABOUT BOT**\n\n"
+        "🎬 **Advanced Auto Filter Bot**\n\n"
+        "🔎 Fast movie search\n"
+        "📂 Automatic file results\n"
+        "🔘 Movie suggestion buttons\n"
+        "🌐 Language & Quality filters\n"
+        "🔒 Force Subscribe support\n\n"
+        "⚡ Fast • Smart • Powerful"
+    )
+
+    await query.message.edit_text(
+        about_text,
+        reply_markup=InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    "🔙 BACK",
+                    callback_data="start_back",
+                ),
+                InlineKeyboardButton(
+                    "❌ CLOSE",
+                    callback_data="start_close",
+                ),
+            ],
+        ]),
+    )
+
+    await query.answer()
+
+
+@Client.on_callback_query(
+    filters.regex(r"^start_back$")
+)
+async def start_back(
+    client: Client,
+    query: CallbackQuery,
+):
+    if not await is_subscribed(client, query.from_user.id):
+        await query.answer(
+            "❌ ആദ്യം channel join ചെയ്യുക.",
+            show_alert=True,
+        )
+        return
+
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+
+    await send_start_message(client, query.message)
+    await query.answer()
+
+
+@Client.on_callback_query(
+    filters.regex(r"^start_close$")
+)
+async def start_close(
+    client: Client,
+    query: CallbackQuery,
+):
+    try:
+        await query.message.delete()
+        await query.answer()
+    except Exception:
+        await query.answer(
+            "❌ Close ചെയ്യാൻ കഴിഞ്ഞില്ല.",
+            show_alert=True,
+        )
