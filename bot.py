@@ -17,10 +17,10 @@ logging.basicConfig(
 LOGGER = logging.getLogger(__name__)
 
 
-class AdvancedAutoFilterBot(Client):
+class LuttappiFilterBot(Client):
     def __init__(self):
         super().__init__(
-            name="AdvancedAutoFilterBot",
+            name="LuttappiFilterBot",
             api_id=API_ID,
             api_hash=API_HASH,
             bot_token=BOT_TOKEN,
@@ -29,8 +29,7 @@ class AdvancedAutoFilterBot(Client):
             sleep_threshold=30,
         )
 
-
-app = AdvancedAutoFilterBot()
+app = LuttappiFilterBot()
 
 
 async def startup():
