@@ -5,7 +5,7 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from database.ia_filterdb import search_files
 from database.settings_db import get_settings
-from info import MAX_RESULTS, SPELLING_CHECK
+from info import SPELLING_CHECK
 from utils import normalize_query, humanbytes
 
 
@@ -40,7 +40,7 @@ def make_file_button(file_data):
 # RESULT KEYBOARD
 # ---------------------------------------------------------
 
-def build_keyboard(results, page=1):
+def build_keyboard(results, page=1, show_filter_buttons=True):
     if not results:
         return None
 
@@ -59,16 +59,17 @@ def build_keyboard(results, page=1):
     buttons = []
 
     # Filter buttons
-    buttons.append([
-        InlineKeyboardButton(
-            "LANGUAGES",
-            callback_data="filter_languages"
-        ),
-        InlineKeyboardButton(
-            "QUALITY",
-            callback_data="filter_quality"
-        )
-    ])
+    if show_filter_buttons:
+        buttons.append([
+            InlineKeyboardButton(
+                "LANGUAGES",
+                callback_data="filter_languages"
+            ),
+            InlineKeyboardButton(
+                "QUALITY",
+                callback_data="filter_quality"
+            )
+        ])
 
     # File buttons
     for file_data in current_results:
@@ -105,14 +106,14 @@ def build_keyboard(results, page=1):
 # RESULT TEXT
 # ---------------------------------------------------------
 
-def build_result_text(query, page, total_results):
+def build_result_text(query, page, total_results, user_name):
     total_pages = max(
         1,
         (total_results + RESULTS_PER_PAGE - 1) // RESULTS_PER_PAGE
     )
 
     return (
-        "👋 **HEY** 👋 🙂 🫶\n\n"
+        f"👋 **HEY {user_name}** 🫶\n\n"
         f"📂 **Query :** `{query}`\n\n"
         f"🗓 **Page No ›** `{page}` / `{total_pages}`\n\n"
         f"🎬 **Results :** `{total_results}`\n\n"
@@ -174,9 +175,11 @@ async def pm_filter(client, message):
         return
 
     # Search database
+    # Keep the internal result pool larger than one page so that
+    # pagination can actually show additional pages.
     results = await search_files(
         query,
-        MAX_RESULTS
+        100
     )
 
     # -----------------------------------------------------
@@ -208,15 +211,19 @@ async def pm_filter(client, message):
     # RESULT MESSAGE
     # -----------------------------------------------------
 
+    user_name = message.from_user.first_name or "User"
+
     text = build_result_text(
         query,
         1,
-        len(results)
+        len(results),
+        user_name
     )
 
     keyboard = build_keyboard(
         results,
-        1
+        1,
+        show_filter_buttons=settings.get("suggestions", True)
     )
 
     await message.reply_text(
