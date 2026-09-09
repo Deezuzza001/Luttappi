@@ -1,22 +1,33 @@
 from pyrogram import Client, filters
-from pyrogram.types import Message
 
-from info import OWNER_ID
-from database.users_chats_db import total_users, total_groups
+from database.users_chats_db import (
+    total_users,
+    total_groups,
+)
 from database.ia_filterdb import total_files
+from info import OWNER_ID
 
 
-def is_owner(message: Message) -> bool:
-    return bool(
-        message.from_user
-        and message.from_user.id == OWNER_ID
-    )
+# ---------------------------------------------------------
+# OWNER CHECK
+# ---------------------------------------------------------
+
+def is_owner(user_id: int) -> bool:
+    return user_id == OWNER_ID
 
 
-@Client.on_message(filters.command("stats") & filters.private)
-async def stats_command(client: Client, message: Message):
+# ---------------------------------------------------------
+# STATS
+# ---------------------------------------------------------
 
-    if not is_owner(message):
+@Client.on_message(
+    filters.command("stats") & filters.private
+)
+async def stats_command(client, message):
+
+    if not message.from_user or not is_owner(
+        message.from_user.id
+    ):
         return
 
     users = await total_users()
@@ -24,47 +35,74 @@ async def stats_command(client: Client, message: Message):
     files = await total_files()
 
     await message.reply_text(
-        "📊 **Bot Statistics**\n\n"
-        f"👤 Users: `{users}`\n"
-        f"👥 Groups: `{groups}`\n"
-        f"📁 Files: `{files}`"
+        "📊 **BOT STATISTICS**\n\n"
+        f"👤 **Users:** `{users}`\n"
+        f"👥 **Groups:** `{groups}`\n"
+        f"📁 **Files:** `{files}`"
     )
 
 
-@Client.on_message(filters.command("users") & filters.private)
-async def users_command(client: Client, message: Message):
+# ---------------------------------------------------------
+# USERS
+# ---------------------------------------------------------
 
-    if not is_owner(message):
+@Client.on_message(
+    filters.command("users") & filters.private
+)
+async def users_command(client, message):
+
+    if not message.from_user or not is_owner(
+        message.from_user.id
+    ):
         return
 
     users = await total_users()
 
     await message.reply_text(
-        f"👤 **Total Users:** `{users}`"
+        "👤 **USER STATISTICS**\n\n"
+        f"Total Users: `{users}`"
     )
 
 
-@Client.on_message(filters.command("groups") & filters.private)
-async def groups_command(client: Client, message: Message):
+# ---------------------------------------------------------
+# GROUPS
+# ---------------------------------------------------------
 
-    if not is_owner(message):
+@Client.on_message(
+    filters.command("groups") & filters.private
+)
+async def groups_command(client, message):
+
+    if not message.from_user or not is_owner(
+        message.from_user.id
+    ):
         return
 
     groups = await total_groups()
 
     await message.reply_text(
-        f"👥 **Total Groups:** `{groups}`"
+        "👥 **GROUP STATISTICS**\n\n"
+        f"Total Groups: `{groups}`"
     )
 
 
-@Client.on_message(filters.command("files") & filters.private)
-async def files_command(client: Client, message: Message):
+# ---------------------------------------------------------
+# FILES
+# ---------------------------------------------------------
 
-    if not is_owner(message):
+@Client.on_message(
+    filters.command("files") & filters.private
+)
+async def files_command(client, message):
+
+    if not message.from_user or not is_owner(
+        message.from_user.id
+    ):
         return
 
     files = await total_files()
 
     await message.reply_text(
-        f"📁 **Total Indexed Files:** `{files}`"
+        "📁 **FILE DATABASE**\n\n"
+        f"Total Files: `{files}`"
     )
