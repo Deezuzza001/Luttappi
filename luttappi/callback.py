@@ -18,6 +18,8 @@ from luttappi.pm_filter import (
 
 from luttappi.start import is_subscribed, send_start_message
 
+ABOUT_PIC = "https://graph.org/file/58a535ee78d31a620566c-021b858a292a797840.jpg"
+
 
 # ---------------------------------------------------------
 # CACHE SETTINGS
@@ -101,6 +103,7 @@ async def restore_page(
             movie_query,
             page,
             len(results),
+            query.from_user.first_name or "User",
         ),
         reply_markup=build_keyboard(
             results,
@@ -249,27 +252,27 @@ async def language_menu(
     buttons = [
         [
             InlineKeyboardButton(
-                "🇮🇳 Malayalam",
+                "Malayalam",
                 callback_data="lang_malayalam",
             ),
             InlineKeyboardButton(
-                "🇬🇧 English",
+                "English",
                 callback_data="lang_english",
             ),
         ],
         [
             InlineKeyboardButton(
-                "🇮🇳 Tamil",
+                "Tamil",
                 callback_data="lang_tamil",
             ),
             InlineKeyboardButton(
-                "🇮🇳 Telugu",
+                "Telugu",
                 callback_data="lang_telugu",
             ),
         ],
         [
             InlineKeyboardButton(
-                "🇮🇳 Hindi",
+                "Hindi",
                 callback_data="lang_hindi",
             ),
         ],
@@ -371,6 +374,7 @@ async def filter_back(
             cache["query"],
             1,
             len(results),
+            query.from_user.first_name or "User",
         ),
         reply_markup=build_keyboard(
             results,
@@ -470,6 +474,7 @@ async def language_filter(
             cache["query"],
             1,
             len(results),
+            query.from_user.first_name or "User",
         ),
         reply_markup=build_keyboard(
             results,
@@ -577,6 +582,7 @@ async def quality_filter(
             cache["query"],
             1,
             len(results),
+            query.from_user.first_name or "User",
         ),
         reply_markup=build_keyboard(
             results,
@@ -635,24 +641,25 @@ async def start_about(
         "⚡ Fast • Smart • Powerful"
     )
 
-    await query.message.edit_text(
-        about_text,
-        reply_markup=InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton(
-                    "🔙 BACK",
-                    callback_data="start_back",
-                ),
-                InlineKeyboardButton(
-                    "❌ CLOSE",
-                    callback_data="start_close",
-                ),
-            ],
-        ]),
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🔙 BACK", callback_data="start_back"),
+            InlineKeyboardButton("❌ CLOSE", callback_data="start_close"),
+        ],
+    ])
+
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+
+    await client.send_photo(
+        chat_id=query.from_user.id,
+        photo=ABOUT_PIC,
+        caption=about_text,
+        reply_markup=keyboard,
     )
-
     await query.answer()
-
 
 @Client.on_callback_query(
     filters.regex(r"^start_back$")
@@ -675,7 +682,6 @@ async def start_back(
 
     await send_start_message(client, query.message)
     await query.answer()
-
 
 @Client.on_callback_query(
     filters.regex(r"^start_close$")
