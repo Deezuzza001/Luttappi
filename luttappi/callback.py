@@ -8,7 +8,7 @@ from pyrogram.types import (
 )
 
 from database.ia_filterdb import get_file
-from plugins.pm_filter import (
+from luttappi.pm_filter import (
     SEARCH_CACHE,
     RESULTS_PER_PAGE,
     build_keyboard,
