@@ -1,10 +1,8 @@
-import time
-
 from pyrogram import Client, filters
 
 from database.ia_filterdb import search_files
 from database.settings_db import get_settings
-from info import MAX_RESULTS, SPELLING_CHECK
+from info import SPELLING_CHECK
 from utils import normalize_query
 
 from luttappi.pm_filter import (
@@ -40,7 +38,7 @@ async def group_filter(client, message):
     # Search database
     results = await search_files(
         query,
-        MAX_RESULTS
+        100
     )
 
     # -----------------------------------------------------
@@ -75,15 +73,19 @@ async def group_filter(client, message):
     # RESULT MESSAGE
     # -----------------------------------------------------
 
+    user_name = message.from_user.first_name or "User"
+
     text = build_result_text(
         query,
         1,
-        len(results)
+        len(results),
+        user_name
     )
 
     keyboard = build_keyboard(
         results,
-        1
+        1,
+        show_filter_buttons=settings.get("suggestions", True)
     )
 
     await message.reply_text(
