@@ -1,4 +1,5 @@
 from pyrogram import Client, filters
+from pyrogram.enums import ChatMemberStatus
 from pyrogram.types import (
     Message,
     InlineKeyboardMarkup,
@@ -48,7 +49,7 @@ async def settings_command(client: Client, message: Message):
         message.from_user.id
     )
 
-    if member.status not in ("administrator", "owner"):
+    if member.status not in (ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER):
         await message.reply_text(
             "❌ ഈ command ഉപയോഗിക്കാൻ Group Admin ആയിരിക്കണം."
         )
@@ -80,7 +81,7 @@ async def settings_callback(
         query.from_user.id
     )
 
-    if member.status not in ("administrator", "owner"):
+    if member.status not in (ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER):
         await query.answer(
             "❌ Admin മാത്രം settings മാറ്റാം.",
             show_alert=True
@@ -88,6 +89,17 @@ async def settings_callback(
         return
 
     key = query.data.replace("set_", "")
+
+    allowed_keys = {
+        "auto_filter",
+        "spell_check",
+        "suggestions",
+        "auto_delete",
+    }
+
+    if key not in allowed_keys:
+        await query.answer("❌ Invalid setting.", show_alert=True)
+        return
 
     settings = await get_settings(message.chat.id)
 
