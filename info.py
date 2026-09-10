@@ -58,6 +58,12 @@ UPDATE_CHANNEL = os.getenv(
 )
 
 
+START_PIC = os.getenv(
+    "START_PIC",
+    ""
+)
+
+
 # =========================
 # Auto Filter Settings
 # =========================
