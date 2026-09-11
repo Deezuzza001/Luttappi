@@ -166,7 +166,12 @@ async def new_channel_file(client, message):
     if not FILE_CHANNEL:
         return
 
-    if message.chat.id != FILE_CHANNEL:
+    try:
+        channel_id = int(str(FILE_CHANNEL).strip())
+    except (TypeError, ValueError):
+        return
+
+    if message.chat.id != channel_id:
         return
 
     try:
