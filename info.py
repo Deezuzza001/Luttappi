@@ -32,15 +32,55 @@ OWNER_ID = int(os.getenv("OWNER_ID", "0"))
 # Telegram Channels
 # =========================
 
-# Channel where movie/files are stored
+# Channel(s) where movie/files are stored
+# New format:
+#   FILE_CHANNELS=-1001111111111,-1002222222222
+#
+# Old FILE_CHANNEL is still supported for compatibility.
+FILE_CHANNELS = []
+_raw_file_channels = os.getenv("FILE_CHANNELS", "").strip()
+
+if _raw_file_channels:
+    for item in _raw_file_channels.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            FILE_CHANNELS.append(int(item))
+        except ValueError:
+            pass
+
 FILE_CHANNEL = int(
     os.getenv("FILE_CHANNEL", "0")
 )
+
+if not FILE_CHANNELS and FILE_CHANNEL:
+    FILE_CHANNELS = [FILE_CHANNEL]
 
 # Log channel
 LOG_CHANNEL = int(
     os.getenv("LOG_CHANNEL", "0")
 )
+
+# Admins allowed to approve indexing requests.
+# Format:
+#   ADMINS=123456789,987654321
+ADMINS = []
+_raw_admins = os.getenv("ADMINS", "").strip()
+
+if _raw_admins:
+    for item in _raw_admins.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            ADMINS.append(int(item))
+        except ValueError:
+            pass
+
+# Owner is always treated as an admin when OWNER_ID is configured.
+if OWNER_ID and OWNER_ID not in ADMINS:
+    ADMINS.append(OWNER_ID)
 
 
 # =========================
