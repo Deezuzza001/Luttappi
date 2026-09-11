@@ -94,14 +94,12 @@ async def index_channel_history(client: Client):
     count = 0
 
     try:
-        # Resolve through dialogs first. This helps Pyrogram know private
-        # channel peers when FILE_CHANNEL is stored only as a -100... ID.
+        # Bot accounts cannot use get_dialogs(). Resolve the numeric channel ID directly.
         channel = None
-
-        async for dialog in client.get_dialogs():
-            if dialog.chat and dialog.chat.id == FILE_CHANNEL:
-                channel = dialog.chat
-                break
+        try:
+            channel = await client.get_chat(FILE_CHANNEL)
+        except Exception:
+            channel = None
 
         if channel is None:
             try:
