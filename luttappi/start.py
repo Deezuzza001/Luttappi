@@ -1,9 +1,12 @@
+import logging
 from pyrogram import Client, filters
 from pyrogram.enums import ChatMemberStatus
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 from database.users_chats_db import save_user, save_group
 from info import START_PIC, FORCE_SUB_CHANNEL, UPDATE_CHANNEL
+
+LOGGER = logging.getLogger(__name__)
 
 
 def channel_link(value):
@@ -144,10 +147,29 @@ async def send_start_message(client: Client, message: Message):
 
 @Client.on_message(filters.command("start") & filters.private)
 async def start_command(client: Client, message: Message):
-    if message.from_user:
-        await save_user(message.from_user)
+    # Send a simple reply first so a database/configuration problem
+    # cannot prevent the bot from acknowledging /start.
+    try:
+        await client.send_message(
+            chat_id=message.chat.id,
+            text="✅ Bot working! /start received."
+        )
+    except Exception:
+        LOGGER.exception("❌ Failed to send /start test reply")
+        return
 
-    await send_start_message(client, message)
+    # Saving the user should not block the /start response.
+    try:
+        if message.from_user:
+            await save_user(message.from_user)
+    except Exception:
+        LOGGER.exception("❌ save_user failed")
+
+    # Try the normal start screen after the test acknowledgement.
+    try:
+        await send_start_message(client, message)
+    except Exception:
+        LOGGER.exception("❌ send_start_message failed")
 
 
 @Client.on_message(filters.group)
