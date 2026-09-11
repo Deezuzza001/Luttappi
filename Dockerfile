@@ -12,4 +12,6 @@ RUN pip install --no-cache-dir --upgrade pip \
 
 COPY . .
 
+EXPOSE 10000
+
 CMD ["python", "bot.py"]
