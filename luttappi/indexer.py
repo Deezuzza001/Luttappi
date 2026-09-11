@@ -94,7 +94,17 @@ async def index_channel_history(client: Client):
     count = 0
 
     try:
-        async for message in client.get_chat_history(FILE_CHANNEL):
+        # Resolve the channel first so Pyrogram has a valid peer.
+        channel = await client.get_chat(FILE_CHANNEL)
+        channel_id = channel.id
+
+        LOGGER.info(
+            "✅ FILE_CHANNEL resolved: %s (%s)",
+            channel.title or "Unknown",
+            channel_id,
+        )
+
+        async for message in client.get_chat_history(channel_id):
 
             try:
                 if await save_channel_file(message):
@@ -114,7 +124,8 @@ async def index_channel_history(client: Client):
 
     except Exception:
         LOGGER.exception(
-            "❌ Failed to read FILE_CHANNEL history."
+            "❌ Failed to read FILE_CHANNEL history. "
+            "Check that the bot is a member/admin and FILE_CHANNEL is correct."
         )
 
     LOGGER.info(
