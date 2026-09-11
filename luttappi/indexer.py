@@ -4,7 +4,7 @@ import re
 from pyrogram import Client, filters
 from pyrogram.errors import RPCError
 
-from info import FILE_CHANNEL
+from info import FILE_CHANNELS
 from database.ia_filterdb import save_file
 from utils import clean_file_name, normalize_query
 
@@ -53,91 +53,75 @@ async def save_channel_file(message):
     return await save_file(file_data)
 
 
-def get_file_channel_id():
-    """Return FILE_CHANNEL as a Telegram numeric channel ID."""
-    try:
-        channel_id = int(str(FILE_CHANNEL).strip())
-    except (TypeError, ValueError):
-        raise ValueError(
-            f"Invalid FILE_CHANNEL: {FILE_CHANNEL!r}. "
-            "Use the numeric channel ID, e.g. -1001234567890."
-        )
-
-    if channel_id >= 0:
-        raise ValueError(
-            f"Invalid FILE_CHANNEL: {channel_id}. "
-            "For a channel, use its full numeric ID beginning with -100."
-        )
-
-    return channel_id
+def get_file_channel_ids():
+    """Return all configured FILE_CHANNELS as Telegram numeric channel IDs."""
+    valid_ids = []
+    for value in FILE_CHANNELS:
+        try:
+            channel_id = int(str(value).strip())
+        except (TypeError, ValueError):
+            LOGGER.error("❌ Invalid FILE_CHANNELS value: %r", value)
+            continue
+        if channel_id >= 0:
+            LOGGER.error("❌ Invalid FILE_CHANNELS value: %s. Use -100... channel IDs.", channel_id)
+            continue
+        valid_ids.append(channel_id)
+    return valid_ids
 
 
 async def index_channel_history(client: Client):
-    """Index existing files from FILE_CHANNEL using only its numeric ID."""
-    if not FILE_CHANNEL:
-        LOGGER.error("❌ FILE_CHANNEL is not configured.")
+    """Index existing files from all configured FILE_CHANNELS."""
+    if not FILE_CHANNELS:
+        LOGGER.error("❌ FILE_CHANNELS is not configured.")
         return
 
-    try:
-        channel_id = get_file_channel_id()
-    except ValueError as e:
-        LOGGER.error("❌ %s", e)
+    channel_ids = get_file_channel_ids()
+    if not channel_ids:
+        LOGGER.error("❌ No valid FILE_CHANNELS configured.")
         return
 
-    LOGGER.info("📂 Starting FILE_CHANNEL history indexing: %s", channel_id)
+    for channel_id in channel_ids:
+        LOGGER.info("📂 Starting FILE_CHANNEL history indexing: %s", channel_id)
+        try:
+            channel = await client.get_chat(channel_id)
+            LOGGER.info("✅ FILE_CHANNEL resolved: %s (%s)",
+                        getattr(channel, "title", None) or "Unknown", channel.id)
 
-    try:
-        # Do NOT use get_dialogs(): Telegram bots cannot call messages.GetDialogs.
-        channel = await client.get_chat(channel_id)
-        LOGGER.info(
-            "✅ FILE_CHANNEL resolved: %s (%s)",
-            getattr(channel, "title", None) or "Unknown",
-            channel.id,
-        )
+            count = 0
+            async for message in client.get_chat_history(channel_id):
+                try:
+                    if await save_channel_file(message):
+                        count += 1
+                        if count % 100 == 0:
+                            LOGGER.info("📊 Channel %s: indexed %s files...", channel_id, count)
+                except Exception:
+                    LOGGER.exception("❌ Failed to index channel %s message %s",
+                                     channel_id, message.id)
 
-        count = 0
-        async for message in client.get_chat_history(channel_id):
-            try:
-                if await save_channel_file(message):
-                    count += 1
-                    if count % 100 == 0:
-                        LOGGER.info("📊 Indexed %s files...", count)
-            except Exception:
-                LOGGER.exception("❌ Failed to index message %s", message.id)
-
-        LOGGER.info("✅ History indexing completed. Total files: %s", count)
-
-    except RPCError as e:
-        LOGGER.error(
-            "❌ FILE_CHANNEL could not be resolved: %s. "
-            "Verify that FILE_CHANNEL is the correct numeric channel ID "
-            "(for example -1001234567890) and that the bot has been added "
-            "to that channel. No get_dialogs() is used.",
-            e,
-        )
-    except Exception:
-        LOGGER.exception(
-            "❌ Failed to read FILE_CHANNEL history. "
-            "Verify the numeric channel ID and bot channel membership."
-        )
+            LOGGER.info("✅ History indexing completed for %s. Total files: %s",
+                        channel_id, count)
+        except RPCError as e:
+            LOGGER.error("❌ FILE_CHANNEL %s could not be resolved: %s. "
+                         "Verify channel ID and bot membership.", channel_id, e)
+        except Exception:
+            LOGGER.exception("❌ Failed to read FILE_CHANNEL history for %s. "
+                             "Verify channel ID and bot membership.", channel_id)
 
 
 @Client.on_message(filters.channel & filters.media)
 async def new_channel_file(client, message):
-    """Automatically index newly uploaded files from FILE_CHANNEL."""
-    if not FILE_CHANNEL:
+    """Automatically index newly uploaded files from any configured FILE_CHANNEL."""
+    if not FILE_CHANNELS:
         return
 
-    try:
-        channel_id = get_file_channel_id()
-    except ValueError:
-        return
-
-    if message.chat.id != channel_id:
+    channel_ids = get_file_channel_ids()
+    if message.chat.id not in channel_ids:
         return
 
     try:
         if await save_channel_file(message):
-            LOGGER.info("✅ New FILE_CHANNEL file indexed: %s", message.id)
+            LOGGER.info("✅ New FILE_CHANNEL file indexed: %s (channel %s)",
+                        message.id, message.chat.id)
     except Exception:
-        LOGGER.exception("❌ Failed to index new FILE_CHANNEL file %s", message.id)
+        LOGGER.exception("❌ Failed to index new FILE_CHANNEL file %s (channel %s)",
+                         message.id, message.chat.id)
