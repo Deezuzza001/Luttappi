@@ -59,16 +59,18 @@ async def start_health_server():
         try:
             await reader.read(4096)
 
+            body = "Luttappi Running"
+
             response = (
                 "HTTP/1.1 200 OK\r\n"
                 "Content-Type: text/plain; charset=utf-8\r\n"
-                "Content-Length: 15\r\n"
+                f"Content-Length: {len(body.encode('utf-8'))}\r\n"
                 "Connection: close\r\n"
                 "\r\n"
-                "Luttappi Running"
+                f"{body}"
             )
 
-            writer.write(response.encode())
+            writer.write(response.encode("utf-8"))
             await writer.drain()
 
         except Exception:
@@ -112,79 +114,138 @@ async def startup():
 
 
 # ---------------------------------------------------------
+# CHANNEL INDEXING
+# ---------------------------------------------------------
+
+async def safe_index_channel_history():
+    """
+    FILE_CHANNEL invalid ആയാലും indexing error കാരണം
+    മുഴുവൻ bot process crash ആകരുത്.
+    """
+
+    try:
+        await index_channel_history(app)
+
+    except asyncio.CancelledError:
+        LOGGER.info("🛑 Channel history indexing cancelled.")
+
+    except Exception:
+        LOGGER.exception(
+            "❌ Channel history indexing failed. "
+            "Bot will continue running."
+        )
+
+
+# ---------------------------------------------------------
 # MAIN
 # ---------------------------------------------------------
 
 async def main():
 
-    await startup()
-
-    LOGGER.info("🚀 Starting Luttappi Filter Bot...")
-
-    # Start Telegram bot
-    await app.start()
-
-    me = await app.get_me()
-
-    LOGGER.info(
-        "🤖 Bot started as @%s",
-        me.username,
-    )
-
     # -----------------------------------------------------
-    # RENDER HEALTH SERVER
+    # START RENDER HEALTH SERVER FIRST
     # -----------------------------------------------------
 
     web_server = await start_health_server()
 
-    # -----------------------------------------------------
-    # CHANNEL HISTORY INDEXING
-    # -----------------------------------------------------
+    index_task = None
+    bot_started = False
 
-    index_task = asyncio.create_task(
-        index_channel_history(app)
-    )
+    try:
 
-    # -----------------------------------------------------
-    # STOP EVENT
-    # -----------------------------------------------------
+        # -------------------------------------------------
+        # DATABASE
+        # -------------------------------------------------
 
-    stop_event = asyncio.Event()
+        await startup()
 
-    def shutdown_handler():
         LOGGER.info(
-            "🛑 Stop signal received..."
+            "🚀 Starting Luttappi Filter Bot..."
         )
 
-        stop_event.set()
+        # -------------------------------------------------
+        # START TELEGRAM BOT
+        # -------------------------------------------------
 
-    loop = asyncio.get_running_loop()
+        await app.start()
 
-    # Render SIGTERM
-    try:
-        loop.add_signal_handler(
-            signal.SIGTERM,
-            shutdown_handler,
+        bot_started = True
+
+        me = await app.get_me()
+
+        LOGGER.info(
+            "🤖 Bot started as @%s",
+            me.username,
         )
-    except (NotImplementedError, RuntimeError):
-        pass
 
-    # Ctrl+C / local shutdown
-    try:
-        loop.add_signal_handler(
-            signal.SIGINT,
-            shutdown_handler,
+        # -------------------------------------------------
+        # CHANNEL HISTORY INDEXING
+        # -------------------------------------------------
+
+        index_task = asyncio.create_task(
+            safe_index_channel_history()
         )
-    except (NotImplementedError, RuntimeError):
-        pass
 
-    # -----------------------------------------------------
-    # KEEP BOT RUNNING
-    # -----------------------------------------------------
+        # -------------------------------------------------
+        # STOP EVENT
+        # -------------------------------------------------
 
-    try:
+        stop_event = asyncio.Event()
+
+        def shutdown_handler():
+            LOGGER.info(
+                "🛑 Stop signal received..."
+            )
+
+            stop_event.set()
+
+        loop = asyncio.get_running_loop()
+
+        # -------------------------------------------------
+        # RENDER SIGTERM
+        # -------------------------------------------------
+
+        try:
+            loop.add_signal_handler(
+                signal.SIGTERM,
+                shutdown_handler,
+            )
+
+        except (
+            NotImplementedError,
+            RuntimeError,
+        ):
+            pass
+
+        # -------------------------------------------------
+        # CTRL+C / LOCAL SHUTDOWN
+        # -------------------------------------------------
+
+        try:
+            loop.add_signal_handler(
+                signal.SIGINT,
+                shutdown_handler,
+            )
+
+        except (
+            NotImplementedError,
+            RuntimeError,
+        ):
+            pass
+
+        # -------------------------------------------------
+        # KEEP BOT RUNNING
+        # -------------------------------------------------
 
         await stop_event.wait()
+
+    except Exception:
+
+        LOGGER.exception(
+            "❌ Fatal error while running Luttappi Bot."
+        )
+
+        raise
 
     finally:
 
@@ -193,26 +254,28 @@ async def main():
         )
 
         # -------------------------------------------------
-        # Stop indexing task
+        # STOP INDEXING TASK
         # -------------------------------------------------
 
-        if not index_task.done():
+        if index_task is not None:
 
-            index_task.cancel()
+            if not index_task.done():
 
-            try:
-                await index_task
+                index_task.cancel()
 
-            except asyncio.CancelledError:
-                pass
+                try:
+                    await index_task
 
-            except Exception:
-                LOGGER.exception(
-                    "❌ Error stopping index task"
-                )
+                except asyncio.CancelledError:
+                    pass
+
+                except Exception:
+                    LOGGER.exception(
+                        "❌ Error stopping index task"
+                    )
 
         # -------------------------------------------------
-        # Close Render health server
+        # CLOSE RENDER HEALTH SERVER
         # -------------------------------------------------
 
         try:
@@ -226,35 +289,42 @@ async def main():
             )
 
         except Exception:
+
             LOGGER.exception(
                 "❌ Error stopping health server"
             )
 
         # -------------------------------------------------
-        # Stop Telegram bot
+        # STOP TELEGRAM BOT
         # -------------------------------------------------
 
-        try:
+        if bot_started:
 
-            await app.stop()
+            try:
 
-            LOGGER.info(
-                "✅ Bot stopped successfully."
-            )
+                if app.is_connected:
 
-        except RuntimeError as e:
+                    await app.stop()
 
-            # Prevent the old Pyrogram loop error
-            if "attached to a different loop" in str(e):
+                    LOGGER.info(
+                        "✅ Bot stopped successfully."
+                    )
 
-                LOGGER.warning(
-                    "⚠️ Pyrogram shutdown loop warning: %s",
-                    e,
-                )
+            except RuntimeError as e:
 
-            else:
+                # Prevent old Pyrogram loop error
+                if "attached to a different loop" in str(e):
 
-                raise
+                    LOGGER.warning(
+                        "⚠️ Pyrogram shutdown loop warning: %s",
+                        e,
+                    )
+
+                else:
+
+                    LOGGER.exception(
+                        "❌ Error stopping Telegram bot"
+                    )
 
 
 # ---------------------------------------------------------
@@ -272,3 +342,9 @@ if __name__ == "__main__":
         LOGGER.info(
             "🛑 Bot stopped by user."
         )
+
+    except Exception:
+
+        LOGGER.exception(
+            "❌ Bot stopped because of an unexpected error."
+            )
