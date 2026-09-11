@@ -1,5 +1,5 @@
-import logging
 import asyncio
+import logging
 
 from pyrogram import Client, idle
 
@@ -7,7 +7,6 @@ from info import API_ID, API_HASH, BOT_TOKEN
 from database import check_database
 from database.ia_filterdb import create_indexes
 from luttappi.indexer import index_channel_history
-
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,7 +34,6 @@ app = LuttappiFilterBot()
 
 async def startup():
     LOGGER.info("🔄 Checking MongoDB connection...")
-
     await check_database()
     LOGGER.info("✅ MongoDB connection successful.")
 
@@ -45,15 +43,13 @@ async def startup():
 
 async def main():
     await startup()
-
     LOGGER.info("🚀 Starting Luttappi Filter Bot...")
 
     await app.start()
-
     me = await app.get_me()
     LOGGER.info("🤖 Bot started as @%s", me.username)
 
-    # Start automatic FILE_CHANNEL indexing on the current event loop.
+    # Run indexing on the same event loop as the Pyrogram client.
     index_task = asyncio.create_task(index_channel_history(app))
 
     try:
@@ -68,7 +64,15 @@ async def main():
             except asyncio.CancelledError:
                 pass
 
-        await app.stop()
+        # Avoid failing shutdown if Render sends SIGTERM while Pyrogram is
+        # already stopping its dispatcher.
+        try:
+            await app.stop()
+        except RuntimeError as e:
+            if "attached to a different loop" in str(e):
+                LOGGER.warning("⚠️ Pyrogram shutdown loop warning: %s", e)
+            else:
+                raise
 
 
 if __name__ == "__main__":
