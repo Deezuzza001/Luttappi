@@ -53,14 +53,22 @@ async def main():
     me = await app.get_me()
     LOGGER.info("🤖 Bot started as @%s", me.username)
 
-    # Start automatic FILE_CHANNEL indexing
-    asyncio.create_task(index_channel_history(app))
+    # Start automatic FILE_CHANNEL indexing on the current event loop.
+    index_task = asyncio.create_task(index_channel_history(app))
 
-    await idle()
+    try:
+        await idle()
+    finally:
+        LOGGER.info("🛑 Stopping bot...")
 
-    LOGGER.info("🛑 Stopping bot...")
+        if not index_task.done():
+            index_task.cancel()
+            try:
+                await index_task
+            except asyncio.CancelledError:
+                pass
 
-    await app.stop()
+        await app.stop()
 
 
 if __name__ == "__main__":
