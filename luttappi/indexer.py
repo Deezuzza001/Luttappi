@@ -80,60 +80,61 @@ async def save_channel_file(message):
 async def index_channel_history(client: Client):
     """
     Index all existing files from FILE_CHANNEL.
+
+    FILE_CHANNEL must be a numeric Telegram channel ID, e.g.
+    -1001234567890.
+
+    Bot accounts cannot use get_dialogs(), so the channel is accessed
+    directly by its numeric ID.
     """
 
     if not FILE_CHANNEL:
         LOGGER.error("❌ FILE_CHANNEL is not configured.")
         return
 
+    try:
+        channel_id = int(str(FILE_CHANNEL).strip())
+    except (TypeError, ValueError):
+        LOGGER.error(
+            "❌ Invalid FILE_CHANNEL: %r. "
+            "Use the numeric channel ID, for example -1001234567890.",
+            FILE_CHANNEL,
+        )
+        return
+
+    if channel_id >= 0:
+        LOGGER.error(
+            "❌ Invalid FILE_CHANNEL: %s. "
+            "A Telegram channel ID should normally start with -100.",
+            channel_id,
+        )
+        return
+
     LOGGER.info(
         "📂 Starting FILE_CHANNEL history indexing: %s",
-        FILE_CHANNEL,
+        channel_id,
     )
 
     count = 0
 
     try:
-        # Bot accounts cannot use get_dialogs(). Resolve the numeric channel ID directly.
-        channel = None
-        try:
-            channel = await client.get_chat(FILE_CHANNEL)
-        except Exception:
-            channel = None
-
-        if channel is None:
-            try:
-                channel = await client.get_chat(FILE_CHANNEL)
-            except Exception:
-                channel = None
-
-        if channel is None:
-            LOGGER.error(
-                "❌ FILE_CHANNEL %s could not be resolved. "
-                "Check the channel ID and make sure the bot has joined it.",
-                FILE_CHANNEL,
-            )
-            return
-
-        channel_id = channel.id
+        # IMPORTANT: Bots cannot use get_dialogs().
+        # Access the channel directly using its numeric ID.
+        channel = await client.get_chat(channel_id)
 
         LOGGER.info(
             "✅ FILE_CHANNEL resolved: %s (%s)",
             getattr(channel, "title", None) or "Unknown",
-            channel_id,
+            channel.id,
         )
 
         async for message in client.get_chat_history(channel_id):
-
             try:
                 if await save_channel_file(message):
                     count += 1
 
                     if count % 100 == 0:
-                        LOGGER.info(
-                            "📊 Indexed %s files...",
-                            count,
-                        )
+                        LOGGER.info("📊 Indexed %s files...", count)
 
             except Exception:
                 LOGGER.exception(
@@ -141,11 +142,14 @@ async def index_channel_history(client: Client):
                     message.id,
                 )
 
-    except Exception:
+    except Exception as e:
         LOGGER.exception(
-            "❌ Failed to read FILE_CHANNEL history. "
-            "Check that the bot is a member/admin and FILE_CHANNEL is correct."
+            "❌ Failed to read FILE_CHANNEL history: %s. "
+            "Check the numeric channel ID and make sure the bot "
+            "is a member/admin of the channel.",
+            e,
         )
+        return
 
     LOGGER.info(
         "✅ History indexing completed. Total files: %s",
