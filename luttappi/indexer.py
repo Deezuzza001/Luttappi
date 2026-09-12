@@ -264,6 +264,36 @@ async def _index_single_target(client, file_chat_id, file_message_id):
 # Existing channel history indexing
 # ============================================================
 
+async def _resolve_channel_peer(client: Client, channel_id: int):
+    """Resolve a numeric channel ID using the bot's dialogs when necessary.
+
+    Telegram/Pyrogram can know a channel exists while the numeric peer is not
+    yet present in the local peer cache. get_dialogs() warms that cache for
+    channels the bot can actually access.
+    """
+    try:
+        chat = await client.get_chat(channel_id)
+        return chat
+    except Exception as first_error:
+        LOGGER.warning(
+            "⚠️ Direct channel resolve failed for %s: %s; refreshing dialogs...",
+            channel_id, first_error,
+        )
+
+    async for dialog in client.get_dialogs():
+        chat = getattr(dialog, "chat", None)
+        if chat and getattr(chat, "id", None) == channel_id:
+            LOGGER.info(
+                "✅ FILE_CHANNEL found in dialogs: %s (%s)",
+                getattr(chat, "title", None) or "Unknown",
+                chat.id,
+            )
+            return chat
+
+    # Do not hide the real Telegram error behind a generic message.
+    return await client.get_chat(channel_id)
+
+
 async def index_channel_history(client: Client):
     """Index existing files from all configured FILE_CHANNELS."""
     channel_ids = get_file_channel_ids()
@@ -276,16 +306,17 @@ async def index_channel_history(client: Client):
         LOGGER.info("📂 Starting FILE_CHANNEL history indexing: %s", channel_id)
 
         try:
-            channel = await client.get_chat(channel_id)
+            channel = await _resolve_channel_peer(client, channel_id)
+            resolved_id = int(channel.id)
             LOGGER.info(
                 "✅ FILE_CHANNEL resolved: %s (%s)",
                 getattr(channel, "title", None) or "Unknown",
-                channel.id,
+                resolved_id,
             )
 
             count = 0
 
-            async for message in client.get_chat_history(channel_id):
+            async for message in client.get_chat_history(resolved_id):
                 try:
                     if not get_file_info(message)[0]:
                         continue
@@ -316,7 +347,7 @@ async def index_channel_history(client: Client):
         except RPCError as e:
             LOGGER.error(
                 "❌ FILE_CHANNEL %s could not be resolved: %s. "
-                "Verify channel ID and bot membership.",
+                "The bot must be a member/admin of the channel and the ID must be correct.",
                 channel_id,
                 e,
             )
