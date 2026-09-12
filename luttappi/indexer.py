@@ -265,33 +265,32 @@ async def _index_single_target(client, file_chat_id, file_message_id):
 # ============================================================
 
 async def _resolve_channel_peer(client: Client, channel_id: int):
-    """Resolve a numeric channel ID using the bot's dialogs when necessary.
+    """Resolve FILE_CHANNEL using the bot's direct channel access.
 
-    Telegram/Pyrogram can know a channel exists while the numeric peer is not
-    yet present in the local peer cache. get_dialogs() warms that cache for
-    channels the bot can actually access.
+    Bots cannot use messages.getDialogs/get_dialogs(), so resolve the
+    configured channel directly with get_chat().
     """
     try:
         chat = await client.get_chat(channel_id)
-        return chat
-    except Exception as first_error:
-        LOGGER.warning(
-            "⚠️ Direct channel resolve failed for %s: %s; refreshing dialogs...",
-            channel_id, first_error,
+
+        if not chat:
+            raise ValueError(f"Channel {channel_id} could not be resolved")
+
+        LOGGER.info(
+            "✅ FILE_CHANNEL resolved: %s (%s)",
+            getattr(chat, "title", None) or "Unknown",
+            chat.id,
         )
 
-    async for dialog in client.get_dialogs():
-        chat = getattr(dialog, "chat", None)
-        if chat and getattr(chat, "id", None) == channel_id:
-            LOGGER.info(
-                "✅ FILE_CHANNEL found in dialogs: %s (%s)",
-                getattr(chat, "title", None) or "Unknown",
-                chat.id,
-            )
-            return chat
+        return chat
 
-    # Do not hide the real Telegram error behind a generic message.
-    return await client.get_chat(channel_id)
+    except Exception as e:
+        LOGGER.error(
+            "❌ Could not resolve FILE_CHANNEL %s: %s",
+            channel_id,
+            e,
+        )
+        raise
 
 
 async def index_channel_history(client: Client):
