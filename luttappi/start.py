@@ -150,10 +150,7 @@ async def start_command(client: Client, message: Message):
     # Send a simple reply first so a database/configuration problem
     # cannot prevent the bot from acknowledging /start.
     try:
-        await client.send_message(
-            chat_id=message.chat.id,
-            text="✅ Bot working! /start received."
-        )
+        await message.reply_text("✅ Bot working! /start received.")
     except Exception:
         LOGGER.exception("❌ Failed to send /start test reply")
         return
