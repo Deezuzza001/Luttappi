@@ -4,7 +4,7 @@ import re
 
 from pyrogram import Client
 
-from info import API_ID, API_HASH, BOT_TOKEN, FILE_CHANNEL
+from info import API_ID, API_HASH, BOT_TOKEN, FILE_CHANNELS
 from database.ia_filterdb import save_file
 from utils import clean_file_name, normalize_query
 
@@ -68,53 +68,100 @@ def get_search_name(file_name):
     return normalize_query(name)
 
 
+def get_file_channel_ids():
+    """Return valid numeric FILE_CHANNELS IDs."""
+    ids = []
+    for value in FILE_CHANNELS:
+        try:
+            channel_id = int(str(value).strip())
+        except (TypeError, ValueError):
+            LOGGER.error("❌ Invalid FILE_CHANNELS value: %r", value)
+            continue
+        if channel_id < 0 and str(channel_id).startswith("-100") and channel_id not in ids:
+            ids.append(channel_id)
+    return ids
+
+
+async def resolve_channel_peer(channel_id):
+    """Resolve channel directly, then refresh the bot's dialogs if needed."""
+    try:
+        return await app.get_chat(channel_id)
+    except Exception as first_error:
+        LOGGER.warning(
+            "⚠️ Direct channel resolve failed for %s: %s; refreshing dialogs...",
+            channel_id, first_error,
+        )
+
+    async for dialog in app.get_dialogs():
+        chat = getattr(dialog, "chat", None)
+        if chat and getattr(chat, "id", None) == channel_id:
+            return chat
+
+    return await app.get_chat(channel_id)
+
+
 async def index_channel():
 
-    if not FILE_CHANNEL:
-        LOGGER.error("❌ FILE_CHANNEL is not configured.")
+    channel_ids = get_file_channel_ids()
+    if not channel_ids:
+        LOGGER.error("❌ FILE_CHANNELS is not configured or has no valid IDs.")
         return
 
-    LOGGER.info(
-        "📂 Starting indexing for channel: %s",
-        FILE_CHANNEL
-    )
+    for channel_id in channel_ids:
+        LOGGER.info("📂 Starting indexing for channel: %s", channel_id)
 
-    count = 0
-
-    async for message in app.get_chat_history(FILE_CHANNEL):
-
-        file_name, file_size, file_type = get_file_info(message)
-
-        if not file_name:
+        try:
+            channel = await resolve_channel_peer(channel_id)
+            resolved_id = int(channel.id)
+            LOGGER.info(
+                "✅ FILE_CHANNEL resolved: %s (%s)",
+                getattr(channel, "title", None) or "Unknown",
+                resolved_id,
+            )
+        except Exception as error:
+            LOGGER.exception(
+                "❌ Could not resolve FILE_CHANNEL %s. "
+                "Verify the bot is a member/admin and the ID is correct: %s",
+                channel_id, error,
+            )
             continue
 
-        search_name = get_search_name(file_name)
+        count = 0
 
-        data = {
-            "chat_id": message.chat.id,
-            "message_id": message.id,
-            "file_name": file_name,
-            "file_size": file_size,
-            "file_type": file_type,
-            "caption": message.caption or "",
-            "search_name": search_name,
-        }
+        async for message in app.get_chat_history(resolved_id):
 
-        saved = await save_file(data)
+            file_name, file_size, file_type = get_file_info(message)
 
-        if saved:
-            count += 1
+            if not file_name:
+                continue
 
-        if count % 100 == 0 and count:
-            LOGGER.info(
-                "📊 Indexed %s files...",
-                count
-            )
+            search_name = get_search_name(file_name)
 
-    LOGGER.info(
-        "✅ Indexing completed. Total: %s",
-        count
-    )
+            data = {
+                "chat_id": message.chat.id,
+                "message_id": message.id,
+                "file_name": file_name,
+                "file_size": file_size,
+                "file_type": file_type,
+                "caption": message.caption or "",
+                "search_name": search_name,
+            }
+
+            saved = await save_file(data)
+
+            if saved:
+                count += 1
+
+            if count % 100 == 0 and count:
+                LOGGER.info(
+                    "📊 Indexed %s files...",
+                    count
+                )
+
+        LOGGER.info(
+            "✅ Indexing completed. Total: %s",
+            count
+        )
 
 
 async def main():
