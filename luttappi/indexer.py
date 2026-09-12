@@ -265,28 +265,52 @@ async def _index_single_target(client, file_chat_id, file_message_id):
 # ============================================================
 
 async def _resolve_channel_peer(client: Client, channel_id: int):
-    """Resolve FILE_CHANNEL using the bot's direct channel access.
+    """Resolve a configured numeric Telegram channel ID.
 
-    Bots cannot use messages.getDialogs/get_dialogs(), so resolve the
-    configured channel directly with get_chat().
+    IMPORTANT:
+    Pyrogram bot sessions cannot use messages.getDialogs() to discover
+    arbitrary channel peers. A numeric -100... ID can only be used once
+    Telegram has supplied the channel peer/access information to this
+    session (normally when the bot is a member/admin and receives an update
+    from that channel).
+
+    We intentionally do NOT use get_dialogs() here.
     """
     try:
-        chat = await client.get_chat(channel_id)
+        chat = await client.get_chat(int(channel_id))
 
         if not chat:
             raise ValueError(f"Channel {channel_id} could not be resolved")
 
         LOGGER.info(
-            "✅ FILE_CHANNEL resolved: %s (%s)",
+            "✅ FILE_CHANNEL resolved by ID: %s (%s)",
             getattr(chat, "title", None) or "Unknown",
             chat.id,
         )
-
         return chat
+
+    except KeyError:
+        LOGGER.error(
+            "❌ Telegram peer is not cached for FILE_CHANNEL %s. "
+            "The bot must be a member/admin of this channel and must have "
+            "received at least one update/message from it. "
+            "Numeric Channel ID support is enabled; usernames are not required.",
+            channel_id,
+        )
+        raise
+
+    except RPCError as e:
+        LOGGER.error(
+            "❌ Telegram rejected FILE_CHANNEL %s: %s. "
+            "Check the numeric Channel ID and bot membership/admin access.",
+            channel_id,
+            e,
+        )
+        raise
 
     except Exception as e:
         LOGGER.error(
-            "❌ Could not resolve FILE_CHANNEL %s: %s",
+            "❌ Could not resolve FILE_CHANNEL %s by numeric ID: %s",
             channel_id,
             e,
         )
@@ -343,18 +367,13 @@ async def index_channel_history(client: Client):
                 count,
             )
 
-        except RPCError as e:
-            LOGGER.error(
-                "❌ FILE_CHANNEL %s could not be resolved: %s. "
-                "The bot must be a member/admin of the channel and the ID must be correct.",
-                channel_id,
-                e,
-            )
-
         except Exception:
             LOGGER.exception(
                 "❌ Failed to read FILE_CHANNEL history for %s. "
-                "Verify channel ID and bot membership.",
+                "Numeric Channel ID is supported, but Telegram has not "
+                "provided a usable peer to this bot session yet. "
+                "Make sure the bot is a member/admin and send a new message "
+                "in the channel so the bot receives the channel update.",
                 channel_id,
             )
 
